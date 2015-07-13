@@ -2,3 +2,6 @@
 *.swp
 .project
 node_modules
+.idea
+build
+utils/npm-debug.log
