@@ -2,7 +2,7 @@
 <html lang="en">
 
 	<head>
-		<title>three.js - ASCII Effect</title>
+		<title>VRP Player - HTML5</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 		<style>
@@ -17,9 +17,13 @@
 	<body>
 
 <script src="../build/three.min.js"></script>
-<script src="js/loaders/OBJLoader.js"></script>
+<script src="js/controls/OrbitControls.js"></script>
+<script src="js/loaders/DDSLoader.js"></script>
+<script src="js/loaders/TGALoader.js"></script>
+<script src="js/loaders/VRPLoader.js"></script>
+<script src="js/libs/stats.min.js"></script>
 <script>
-    var container;
+    var stats, container;
 
     var camera, scene, renderer;
 
@@ -28,28 +32,29 @@
     var windowHalfX = window.innerWidth / 2;
     var windowHalfY = window.innerHeight / 2;
 
-
     init();
     animate();
-
 
     function init() {
 
         container = document.createElement( 'div' );
         document.body.appendChild( container );
 
-        camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 2000 );
-        camera.position.z = 100;
+        camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 15000 );
+        camera.position.z = -500;
+
+
+        controls = new THREE.OrbitControls( camera );
 
         // scene
 
         scene = new THREE.Scene();
 
-        var ambient = new THREE.AmbientLight( 0x101030 );
+        var ambient = new THREE.AmbientLight( 0x202050 );
         scene.add( ambient );
 
         var directionalLight = new THREE.DirectionalLight( 0xffeedd );
-        directionalLight.position.set( 0, 0, 1 );
+        directionalLight.position.set( 0, -1, 1 );
         scene.add( directionalLight );
 
         // texture
@@ -73,46 +78,45 @@
         var onError = function ( xhr ) {
         };
 
-
-        var loader = new THREE.ImageLoader( manager );
-        loader.load( 'textures/UV_Grid_Sm.jpg', function ( image ) {
-
-            texture.image = image;
-            texture.needsUpdate = true;
-
-        } );
+//        loader.load( 'obj/vrp/simple_textures/bottom.dds', function ( image ) {
+//            texture.image = image;
+//            texture.needsUpdate = true;
+//        } );
 
         // model
 
-        var loader = new THREE.OBJLoader( manager );
-        loader.load( 'obj/male02/male02.obj', function ( object ) {
+        var loader = new THREE.VRPLoader( manager );
+        loader.load( 'obj/vrp/engine.vrp', function ( object ) {
 
             object.traverse( function ( child ) {
 
                 if ( child instanceof THREE.Mesh ) {
 
-                    child.material.map = texture;
+                    //child.material.map = map1;
 
                 }
 
             } );
 
-            object.position.y = - 80;
+            //object.position.y = -100;
             scene.add( object );
 
         }, onProgress, onError );
 
         //
 
-        renderer = new THREE.WebGLRenderer();
+        renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio( window.devicePixelRatio );
         renderer.setSize( window.innerWidth, window.innerHeight );
         container.appendChild( renderer.domElement );
 
+        stats = new Stats();
+        stats.domElement.style.position = 'absolute';
+        stats.domElement.style.top = '0px';
+
+        container.appendChild( stats.domElement );
+
         document.addEventListener( 'mousemove', onDocumentMouseMove, false );
-
-        //
-
         window.addEventListener( 'resize', onWindowResize, false );
 
     }
@@ -143,14 +147,10 @@
         requestAnimationFrame( animate );
         render();
 
+        stats.update();
     }
 
     function render() {
-
-        camera.position.x += ( mouseX - camera.position.x ) * .05;
-        camera.position.y += ( - mouseY - camera.position.y ) * .05;
-
-        camera.lookAt( scene.position );
 
         renderer.render( scene, camera );
 

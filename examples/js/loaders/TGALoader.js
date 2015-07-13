@@ -31,7 +31,6 @@ THREE.TGALoader.prototype._parser = function ( buffer ) {
 	TGA_ORIGIN_UL = 0x02,
 	TGA_ORIGIN_UR = 0x03;
 
-
 	if ( buffer.length < 19 )
 		console.error( 'THREE.TGALoader.parse: Not enough data to contain header.' );
 
@@ -420,12 +419,15 @@ THREE.TGALoader.prototype._parser = function ( buffer ) {
 	}
 
 	var result = tgaParse( use_rle, use_pal, header, offset, content );
+	console.log(result);
 	var rgbaData = getTgaRGBA( header.width, header.height, result.pixel_data, result.palettes );
 
 	return {
 		width: header.width,
 		height: header.height,
-		data: rgbaData
+		data: rgbaData,
+		wrapS: THREE.RepeatWrapping,
+		wrapT: THREE.RepeatWrapping,
 	};
 
 };
