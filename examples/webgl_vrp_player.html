@@ -78,27 +78,10 @@
         var onError = function ( xhr ) {
         };
 
-//        loader.load( 'obj/vrp/simple_textures/bottom.dds', function ( image ) {
-//            texture.image = image;
-//            texture.needsUpdate = true;
-//        } );
-
         // model
-
         var loader = new THREE.VRPLoader( manager );
-        loader.load( 'obj/vrp/engine.vrp', function ( object ) {
+        loader.load( 'obj/vrp/simple.vrp', function ( object ) {
 
-            object.traverse( function ( child ) {
-
-                if ( child instanceof THREE.Mesh ) {
-
-                    //child.material.map = map1;
-
-                }
-
-            } );
-
-            //object.position.y = -100;
             scene.add( object );
 
         }, onProgress, onError );
