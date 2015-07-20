@@ -2,7 +2,7 @@
  * @author yi kaiming
  * .vrp file loader
  */
-// pakfile常数定义
+// pakFile常数定义
 
 NODE_UNKNOW = 0;
 NODE_DIR = 1;
@@ -185,22 +185,39 @@ function load_map(tex_dif_filename, tex_dir) {
     return map1;
 }
 
-THREE.PakNode = function()
-{
+THREE.PakNode = function () {
     // 成员变量
-    this.name= '';
-    this.id= 0;
-    this.parent_id= 0;
-    this.node_type= 0;
-    this.sub_type= 0;
-    this.length= 0;
-    this.children= [];
+    this.name = '';
+    this.id = 0;
+    this.parent_id = 0;
+    this.node_type = 0;
+    this.sub_type = 0;
+    this.length = 0;
+    this.children = [];
 };
 
 THREE.PakNode.prototype = {
 
     constructor: THREE.PakNode,
 
+    // paknode:find_data
+    find_data: function (name) {
+        var container = this.find_node(name);
+        if (container) {
+            return container.value;
+        }
+        return null;
+    },
+
+    // paknode:find_node
+    find_node: function (name) {
+        for (var node in this.children) {
+            if (name === this.children[node].name) {
+                return this.children[node];
+            }
+        }
+        return null;
+    },
 };
 
 // 构造函数
@@ -220,28 +237,6 @@ THREE.VRPLoader.prototype = {
 
     constructor: THREE.VRPLoader,
 
-
-    // paknode:find_data
-    find_data: function (parent, name) {
-        var container = this.find_node(parent, name);
-        if (container) {
-            return container.value;
-        }
-        return null;
-    },
-
-    // paknode:find_node
-    find_node: function (parent, name) {
-        if (parent != null) {
-            for (var node in parent.children) {
-                if (name === parent.children[node].name) {
-                    return parent.children[node];
-                }
-            }
-        }
-        return null;
-    },
-
     // get node
     find_node_by_id: function (id) {
         for (var node in this.dirnodes) {
@@ -257,15 +252,15 @@ THREE.VRPLoader.prototype = {
     parse_next_node: function (buffer, offset) {
         var dv = new DataView(buffer, offset, 64);
 
-        var namestring = new Uint8Array(buffer, offset, 48);
+        var name_string = new Uint8Array(buffer, offset, 48);
 
         var nodeData = new THREE.PakNode();
-        nodeData.name = uintToString(namestring);
-        nodeData.id= dv.getInt32(48, true);
-        nodeData.parent_id= dv.getInt32(52, true);
-        nodeData.node_type= dv.getUint16(56, true);
-        nodeData.sub_type= dv.getUint16(58, true);
-        nodeData.length= dv.getInt32(60, true);
+        nodeData.name = uintToString(name_string);
+        nodeData.id = dv.getInt32(48, true);
+        nodeData.parent_id = dv.getInt32(52, true);
+        nodeData.node_type = dv.getUint16(56, true);
+        nodeData.sub_type = dv.getUint16(58, true);
+        nodeData.length = dv.getInt32(60, true);
 
         this.readoffset += 64;
 
@@ -319,7 +314,7 @@ THREE.VRPLoader.prototype = {
                 case NODE_STR128:
                 case NODE_STR256:
 
-                    var sliced = buffer.slice(offset + 64, offset + 64 + getDataLength(nodeData.node_type) / 2 );
+                    var sliced = buffer.slice(offset + 64, offset + 64 + getDataLength(nodeData.node_type) / 2);
                     var filenamebuf = new Uint16Array(sliced);
                     nodeData.value = uint16ToString(filenamebuf);
 
@@ -346,78 +341,75 @@ THREE.VRPLoader.prototype = {
     //
     parse: function (buffer, url) {
 
-        console.log('parsing ' + url);
+        console.time('VRPLoader');
+        console.log('VRPLoader parsing ' + url);
 
-        //var pos = url.lastIndexOf('.vrp');
+        // 计算vrp文件的贴图路径
         var tex_dir = url.replace('.vrp', '_textures/');
 
-        console.time('VRPLoader');
-
+        // 读取文件头
         var data = new Uint8Array(buffer);
-
         var vrpData = {
             buffer: buffer,
             flag: [data[0], data[1], data[2], data[3]],
             version: [data[4], data[5], data[6], data[7]],
         };
 
+        // 解析整个文件
+        this.root_node = this.parse_next_node(vrpData.buffer, this.readoffset);
+        while (this.readoffset < data.length) {
+            this.parse_next_node(vrpData.buffer, this.readoffset);
+        }
+
+        // 加载物体的缓存容器
         var object, objects = [];
         var geometry, material;
 
-        console.log(String.fromCharCode.apply(null, vrpData.flag));
-
-        var rootNode = this.parse_next_node(vrpData.buffer, this.readoffset);
-
-        this.root_node = rootNode;
-
-        while (this.readoffset < data.length) {
-            var node = this.parse_next_node(vrpData.buffer, this.readoffset);
+        function clearTemp() {
+            geometry = {
+                vertices: [],
+                normals: [],
+                uvs: [],
+                uvs2: [],
+                indexArray: [],
+            };
+            material = {
+                name: '',
+                transparent: false,
+                alphaTest: 0,
+                side: THREE.FrontSide,
+            };
+            object = {
+                name: '',
+                geometry: geometry,
+                material: material,
+                mat: new THREE.Matrix4(),
+                visible: true,
+            };
+            objects.push(object);
         }
 
-        geometry = {
-            vertices: [],
-            normals: [],
-            uvs: [],
-            uvs2: [],
-            indexArray: [],
-        };
+        clearTemp();
 
-        material = {
-            name: '',
-            transparent: false,
-            alphaTest: 0,
-            side: THREE.FrontSide,
-        };
 
-        object = {
-            name: '',
-            geometry: geometry,
-            material: material,
-            mat: new THREE.Matrix4(),
-            visible: true,
-        };
+        // 开始从root_node加载模型
 
-        objects.push(object);
-
-        var vertices = [];
-        var normals = [];
-        var uvs = [];
-
-        var models = this.find_node(rootNode, 'Models6.0');
+        // 1.查找模型节点
+        var models = this.root_node.find_node('Models6.0');
         if (models == null) {
-            models = this.find_node(rootNode, 'Models4.0');
+            models = this.root_node.find_node('Models4.0');
             if (models == null) {
-                models = this.find_node(rootNode, 'Models3.0');
+                models = this.root_node.find_node('Models3.0');
                 if (models == null) {
-                    models = this.find_node(rootNode, 'Models2.0');
+                    models = this.root_node.find_node('Models2.0');
                     if (models == null) {
-                        models = this.find_node(rootNode, 'Models5.0');
+                        models = this.root_node.find_node('Models5.0');
                         if (models == null) {
-                            models = this.find_node(rootNode, 'Models');
+                            models = this.root_node.find_node('Models');
                             if (models == null) {
-                                models = this.find_node(rootNode, 'PES8.0');
+                                models = this.root_node.find_node('PES8.0');
                                 if (models == null) {
-                                    models = this.find_node(rootNode, 'Meshs');
+                                    models = this.root_node.find_node('Meshs');
                                 }
                             }
                         }
@@ -426,246 +418,321 @@ THREE.VRPLoader.prototype = {
             }
         }
 
+        // 遍历加载
         if (models != null) {
             for (var i in models.children) {
                 var model = models.children[i];
-                if (model != null) {
-                    var objname = model.name;
 
-                    var visible = this.find_data(model, 'visible');
+                // 加载一个模型
+                if (model != null) {
+                    // 取得节点名称
+                    var objname = model.name;
+                    object.name = objname;
+
+                    // 可见属性，写入object
+                    var visible = model.find_data('visible');
                     if (visible != null && visible == 0) {
                         object.visible = false;
                     }
-                    var imesh = this.find_node(model, 'IMesh');
+
+                    // 查找网格数据
+                    var imesh = model.find_node('IMesh');
                     if (imesh != null) {
+                        // 取得矩阵
+                        var mat_aft_local = imesh.find_data('mat_aft_local');
+                        object.mat = mat_aft_local;
 
-                        var material = this.find_node(imesh, 'Material');
-                        var tex_diffuse = this.find_node(material, 'TEX_DIFFUSE');
-                        var tex_dif_filename = this.find_data(tex_diffuse, 'FILENAME');
-                        var tex_lightmap = this.find_node(material, 'TEX_LIGHTMAP');
-                        var tex_lm_filename = this.find_data(tex_lightmap, 'FILENAME');
-
+                        // 先加载材质
                         var map1 = null;
-                        map1 = load_map(tex_dif_filename, tex_dir);
-                        var map2 = null
-                        map2 = load_map(tex_lm_filename, tex_dir);
-                        console.log(tex_lm_filename);
+                        var map2 = null;
+                        var map3 = null;
 
-                        var sysmesh = this.find_node(imesh, 'SysMesh');
-
-                        var mat_aft_local = this.find_data(imesh, 'mat_aft_local');
-
-                        if (sysmesh) {
-                            //console.log('got one mesh');
-                            var vert_count = this.find_data(sysmesh, "MESH_VER_COUNT");
-                            var face_count = this.find_data(sysmesh, "MESH_FACE_COUNT");
-
-
-                            var is_dword = this.find_data(sysmesh, "MESH_32BIT_IB");
-
-                            var fvf = this.find_data(sysmesh, "MESH_FVF");
-
-
-                            var fvfstr = '';
-
-                            var vert_size = 0;
-                            if (fvf & D3DFVF_XYZ) {
-                                vert_size += 4 * 3;
-                                fvfstr += '|POS'
-                            }
-                            if (fvf & D3DFVF_TEX1) {
-                                vert_size += 4 * 2;
-                                fvfstr += '|TEX1'
-                            }
-                            if (fvf & D3DFVF_TEX2) {
-                                vert_size += 4 * 4;
-                                fvfstr += '|TEX2'
-                            }
-                            if (fvf & D3DFVF_NORMAL) {
-                                vert_size += 4 * 3;
-                                fvfstr += '|NOR'
-                            }
-                            if (fvf & D3DFVF_DIFFUSE) {
-                                vert_size += 4;
-                                fvfstr += '|DIF'
-                            }
-
-                            var pvb = this.find_data(sysmesh, "MESH_VB");
-                            var pib = this.find_data(sysmesh, "MESH_IB");
-
-                            var pvbfloat = new Float32Array(pvb, 0, vert_size / 4 * vert_count);
-                            var pibdword = null;
-                            if (is_dword > 0) {
-                                pibdword = new Uint32Array(pib, 0, face_count * 3);
-                            }
-                            else {
-                                pibdword = new Uint16Array(pib, 0, face_count * 3);
-                            }
-
-
-                            console.log('geo|vert:' + vert_count + ' face:' + face_count + ' vertsize:' + vert_size + 'FVF:' + fvfstr);
-
-
-                            for (var i = 0; i < face_count; ++i) {
-
-                                var offset = 0;
-
-                                var index0 = pibdword[i * 3];
-                                var index1 = pibdword[i * 3 + 1];
-                                var index2 = pibdword[i * 3 + 2];
-
-                                geometry.vertices.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
-                                geometry.vertices.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
-                                geometry.vertices.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
-
-                                if (fvf & D3DFVF_NORMAL) {
-                                    offset += 3;
-                                }
-
-                                if (fvf & D3DFVF_TEX1) {
-                                    geometry.uvs.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
-                                    geometry.uvs.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
-                                }
-                                else if (fvf & D3DFVF_TEX2) {
-                                    geometry.uvs.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
-                                    geometry.uvs.push(1.0 - pvbfloat[index0 * (vert_size / 4) + offset++]);
-                                    geometry.uvs2.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
-                                    geometry.uvs2.push(1.0 - pvbfloat[index0 * (vert_size / 4) + offset++]);
-                                }
-
-                                offset = 0;
-
-                                geometry.vertices.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
-                                geometry.vertices.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
-                                geometry.vertices.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
-
-                                if (fvf & D3DFVF_NORMAL) {
-                                    offset += 3;
-                                }
-
-                                if (fvf & D3DFVF_TEX1) {
-                                    geometry.uvs.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
-                                    geometry.uvs.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
-                                }
-                                else if (fvf & D3DFVF_TEX2) {
-                                    geometry.uvs.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
-                                    geometry.uvs.push(1.0 - pvbfloat[index2 * (vert_size / 4) + offset++]);
-                                    geometry.uvs2.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
-                                    geometry.uvs2.push(1.0 - pvbfloat[index2 * (vert_size / 4) + offset++]);
-                                }
-
-                                offset = 0;
-
-                                geometry.vertices.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
-                                geometry.vertices.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
-                                geometry.vertices.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
-
-                                if (fvf & D3DFVF_NORMAL) {
-                                    offset += 3;
-                                }
-
-
-                                if (fvf & D3DFVF_TEX1) {
-                                    geometry.uvs.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
-                                    geometry.uvs.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
-                                }
-                                else if (fvf & D3DFVF_TEX2) {
-                                    geometry.uvs.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
-                                    geometry.uvs.push(1.0 - pvbfloat[index1 * (vert_size / 4) + offset++]);
-                                    geometry.uvs2.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
-                                    geometry.uvs2.push(1.0 - pvbfloat[index1 * (vert_size / 4) + offset++]);
-                                }
-                            }
-
-                            //console.log(vertices);
-                            //console.log(pibdword);
-
-                            object.name = objname;
-                            object.mat = mat_aft_local;
-                            object.material.map = map1;
-                            object.material.lightMap = map2;
-
-
-                            var transp = this.find_data(material, "ENABLE_TRANSP");
-                            if (transp == null) {
-                                transp = 0;
-                            }
-
-                            var transp_type = this.find_data(material, "TRANSP_TYPE");
-                            if (transp_type == null) {
-                                transp_type = 0;
-                            }
-
-                            var blendopt = this.find_data(material, "TRANS_FACTOR");
-                            if (blendopt == null) {
-                                blendopt = 0;
-                            }
-
-                            var twoside = this.find_data(material, "TWO_SIDED");
-                            if (twoside > 0) {
-                                object.material.side = THREE.DoubleSide;
-                            }
-                            else {
-                                object.material.side = THREE.FrontSide;
-                            }
-
-                            var alpharef = this.find_data(material, "ALPHA_REF");
-                            if (alpharef == null) {
-                                alpharef = 128;
-                            }
-
-                            if (transp > 0 && blendopt != 0) {
-                                object.material.transparent = true;
-                                object.material.alphaTest = 0;
-                            }
-                            else if (transp > 0) {
-                                if (transp_type == 2) {
-                                    if (alpharef > 0) {
-                                        object.material.transparent = false;
-                                        object.material.alphaTest = alpharef / 255.0;
-                                    }
-                                    else {
-                                        object.material.alphaTest = 0;
-                                        object.material.transparent = true;
-                                    }
-                                }
-                            }
-                            else {
-                                object.material.transparent = false;
-                                object.material.alphaTest = 0.5;
-                            }
-
-                            geometry = {
-                                vertices: [],
-                                normals: [],
-                                uvs: [],
-                                uvs2: [],
-                                indexArray: [],
-                            };
-
-                            material = {
-                                name: '',
-                                transparent: false,
-                                alphaTest: 0,
-                                side: THREE.FrontSide,
-                            };
-
-                            object = {
-                                name: '',
-                                geometry: geometry,
-                                material: material,
-                                mat: new THREE.Matrix4(),
-                                visible: true,
-                            };
-
-                            objects.push(object);
-
+                        // 查找并读取diffuse, lightmap, envmap纹理
+                        var material = imesh.find_node('Material');
+                        var tex_diffuse = material.find_node('TEX_DIFFUSE');
+                        if (tex_diffuse != null) {
+                            var tex_dif_filename = tex_diffuse.find_data('FILENAME');
+                            map1 = load_map(tex_dif_filename, tex_dir);
                         }
+
+                        var tex_lightmap = material.find_node('TEX_LIGHTMAP');
+                        if (tex_lightmap != null) {
+                            var tex_lm_filename = tex_lightmap.find_data('FILENAME');
+                            map2 = load_map(tex_lm_filename, tex_dir);
+                        }
+
+                        object.material.map = map1;
+                        object.material.lightMap = map2;
+
+                        // 读取材质属性
+                        var transp = material.find_data("ENABLE_TRANSP");
+                        if (transp == null) {
+                            transp = 0;
+                        }
+                        var transp_type = material.find_data("TRANSP_TYPE");
+                        if (transp_type == null) {
+                            transp_type = 0;
+                        }
+                        var blendopt = material.find_data("TRANS_FACTOR");
+                        if (blendopt == null) {
+                            blendopt = 0;
+                        }
+                        var twoside = material.find_data("TWO_SIDED");
+                        if (twoside > 0) {
+                            object.material.side = THREE.DoubleSide;
+                        }
+                        else {
+                            object.material.side = THREE.FrontSide;
+                        }
+
+                        var alpharef = material.find_data("ALPHA_REF");
+                        if (alpharef == null) {
+                            alpharef = 128;
+                        }
+
+                        if (transp > 0 && blendopt != 0) {
+                            object.material.transparent = true;
+                            object.material.alphaTest = 0;
+                        }
+                        else if (transp > 0) {
+                            if (transp_type == 2) {
+                                if (alpharef > 0) {
+                                    object.material.transparent = false;
+                                    object.material.alphaTest = alpharef / 255.0;
+                                }
+                                else {
+                                    object.material.alphaTest = 0;
+                                    object.material.transparent = true;
+                                }
+                            }
+                        }
+                        else {
+                            object.material.transparent = false;
+                            object.material.alphaTest = 0.5;
+                        }
+
+
+                        // 开始加载模型
+
+                        // 优化模型
+                        var optmized = imesh.find_data('mesh_optimized');
+
+                        if (optmized != null && optmized > 0)
+                        {
+                            var sysmesh = imesh.find_node('SysMesh');
+                            if (sysmesh) {
+                                var vert_count = sysmesh.find_data("MESH_VER_COUNT");
+                                var face_count = sysmesh.find_data("MESH_FACE_COUNT");
+
+                                var is_dword = sysmesh.find_data("MESH_32BIT_IB");
+                                var fvf = sysmesh.find_data("MESH_FVF");
+
+                                var fvfstr = '';
+
+                                var vert_size = 0;
+                                if (fvf & D3DFVF_XYZ) {
+                                    vert_size += 4 * 3;
+                                    fvfstr += '|POS'
+                                }
+                                if (fvf & D3DFVF_TEX1) {
+                                    vert_size += 4 * 2;
+                                    fvfstr += '|TEX1'
+                                }
+                                if (fvf & D3DFVF_TEX2) {
+                                    vert_size += 4 * 4;
+                                    fvfstr += '|TEX2'
+                                }
+                                if (fvf & D3DFVF_NORMAL) {
+                                    vert_size += 4 * 3;
+                                    fvfstr += '|NOR'
+                                }
+                                if (fvf & D3DFVF_DIFFUSE) {
+                                    vert_size += 4;
+                                    fvfstr += '|DIF'
+                                }
+
+                                var pvb = sysmesh.find_data("MESH_VB");
+                                var pib = sysmesh.find_data("MESH_IB");
+
+                                var pvbfloat = new Float32Array(pvb, 0, vert_size / 4 * vert_count);
+                                var pibdword = null;
+                                if (is_dword > 0) {
+                                    pibdword = new Uint32Array(pib, 0, face_count * 3);
+                                }
+                                else {
+                                    pibdword = new Uint16Array(pib, 0, face_count * 3);
+                                }
+
+
+                                console.log('geo|vert:' + vert_count + ' face:' + face_count + ' vertsize:' + vert_size + 'FVF:' + fvfstr);
+
+
+                                for (var i = 0; i < face_count; ++i) {
+
+                                    var offset = 0;
+
+                                    var index0 = pibdword[i * 3];
+                                    var index1 = pibdword[i * 3 + 1];
+                                    var index2 = pibdword[i * 3 + 2];
+
+                                    geometry.vertices.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
+                                    geometry.vertices.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
+                                    geometry.vertices.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
+
+                                    if (fvf & D3DFVF_NORMAL) {
+                                        offset += 3;
+                                    }
+
+                                    if (fvf & D3DFVF_TEX1) {
+                                        geometry.uvs.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
+                                        geometry.uvs.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
+                                    }
+                                    else if (fvf & D3DFVF_TEX2) {
+                                        geometry.uvs.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
+                                        geometry.uvs.push(1.0 - pvbfloat[index0 * (vert_size / 4) + offset++]);
+                                        geometry.uvs2.push(pvbfloat[index0 * (vert_size / 4) + offset++]);
+                                        geometry.uvs2.push(1.0 - pvbfloat[index0 * (vert_size / 4) + offset++]);
+                                    }
+
+                                    offset = 0;
+
+                                    geometry.vertices.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
+                                    geometry.vertices.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
+                                    geometry.vertices.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
+
+                                    if (fvf & D3DFVF_NORMAL) {
+                                        offset += 3;
+                                    }
+
+                                    if (fvf & D3DFVF_TEX1) {
+                                        geometry.uvs.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
+                                        geometry.uvs.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
+                                    }
+                                    else if (fvf & D3DFVF_TEX2) {
+                                        geometry.uvs.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
+                                        geometry.uvs.push(1.0 - pvbfloat[index2 * (vert_size / 4) + offset++]);
+                                        geometry.uvs2.push(pvbfloat[index2 * (vert_size / 4) + offset++]);
+                                        geometry.uvs2.push(1.0 - pvbfloat[index2 * (vert_size / 4) + offset++]);
+                                    }
+
+                                    offset = 0;
+
+                                    geometry.vertices.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
+                                    geometry.vertices.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
+                                    geometry.vertices.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
+
+                                    if (fvf & D3DFVF_NORMAL) {
+                                        offset += 3;
+                                    }
+
+
+                                    if (fvf & D3DFVF_TEX1) {
+                                        geometry.uvs.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
+                                        geometry.uvs.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
+                                    }
+                                    else if (fvf & D3DFVF_TEX2) {
+                                        geometry.uvs.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
+                                        geometry.uvs.push(1.0 - pvbfloat[index1 * (vert_size / 4) + offset++]);
+                                        geometry.uvs2.push(pvbfloat[index1 * (vert_size / 4) + offset++]);
+                                        geometry.uvs2.push(1.0 - pvbfloat[index1 * (vert_size / 4) + offset++]);
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            var nomesh = imesh.find_node('NoMesh');
+                            if(nomesh != null)
+                            {
+                                var ver_count = nomesh.find_data("ORIGIN_VER_COUNT");
+                                var face_count = nomesh.find_data("ORIGIN_FACE_COUNT");
+
+                                var pos_buffer = nomesh.find_data("ORIGIN_POS_BUF");
+                                var face_buffer = nomesh.find_data("ORIGIN_FACE_BUF");
+
+                                var pvbfloat = new Float32Array(pos_buffer, 0, ver_count * 3);
+                                var pibdword = new Uint32Array(face_buffer, 0, face_count * 3);
+
+                                console.log('nomesh|vert:' + ver_count + ' face:' + face_count);
+
+                                for (var i = 0; i < face_count; ++i)
+                                {
+
+                                    var index0 = pibdword[i * 3];
+                                    var index1 = pibdword[i * 3 + 1];
+                                    var index2 = pibdword[i * 3 + 2];
+
+                                    geometry.vertices.push(pvbfloat[index0 * 3 + 0]);
+                                    geometry.vertices.push(pvbfloat[index0 * 3 + 1]);
+                                    geometry.vertices.push(pvbfloat[index0 * 3 + 2]);
+
+                                    geometry.vertices.push(pvbfloat[index1 * 3 + 0]);
+                                    geometry.vertices.push(pvbfloat[index1 * 3 + 1]);
+                                    geometry.vertices.push(pvbfloat[index1 * 3 + 2]);
+
+                                    geometry.vertices.push(pvbfloat[index2 * 3 + 0]);
+                                    geometry.vertices.push(pvbfloat[index2 * 3 + 1]);
+                                    geometry.vertices.push(pvbfloat[index2 * 3 + 2]);
+                                }
+
+
+                                var uv_count = nomesh.find_data("ORIGIN_TMAP_COUNT");
+                                if(uv_count > 2)
+                                {
+                                    uv_count = 2;
+                                }
+                                for(var u=0; u < uv_count; ++u)
+                                {
+                                    console.log('process uv' + u);
+                                    var uv_buffer = nomesh.find_data('ORIGIN_TMAP_UV_' + u);
+                                    var uv_face_buffer = nomesh.find_data('ORIGIN_TMAP_FACE_' + u);
+
+                                    var pvbfloat = new Float32Array(uv_buffer, 0, ver_count * 2);
+                                    var pibdword = new Uint32Array(uv_face_buffer, 0, face_count * 3);
+
+                                    for (var i = 0; i < face_count; ++i)
+                                    {
+                                        var index0 = pibdword[i * 3];
+                                        var index1 = pibdword[i * 3 + 1];
+                                        var index2 = pibdword[i * 3 + 2];
+
+                                        if(u===1)
+                                        {
+                                            geometry.uvs.push(pvbfloat[index0 * 2 + 0]);
+                                            geometry.uvs.push(1.0 - pvbfloat[index0 * 2 + 1]);
+
+                                            geometry.uvs.push(pvbfloat[index1 * 2 + 0]);
+                                            geometry.uvs.push(1.0 - pvbfloat[index1 * 2 + 1]);
+
+                                            geometry.uvs.push(pvbfloat[index2 * 2 + 0]);
+                                            geometry.uvs.push(1.0 - pvbfloat[index2 * 2 + 1]);
+                                        }
+                                        else
+                                        {
+                                            geometry.uvs2.push(pvbfloat[index0 * 2 + 0]);
+                                            geometry.uvs2.push(1.0 - pvbfloat[index0 * 2 + 1]);
+
+                                            geometry.uvs2.push(pvbfloat[index1 * 2 + 0]);
+                                            geometry.uvs2.push(1.0 - pvbfloat[index1 * 2 + 1]);
+
+                                            geometry.uvs2.push(pvbfloat[index2 * 2 + 0]);
+                                            geometry.uvs2.push(1.0 - pvbfloat[index2 * 2 + 1]);
+                                        }
+
+                                    }
+                                }
+
+                            }
+                        }
+
+                        clearTemp();
                     }
                 }
             }
         }
 
+
+        // 开始从加载数据加载three.js mesh
         var container = new THREE.Object3D();
 
         for (var i = 0, l = objects.length; i < l; i++) {
@@ -688,14 +755,14 @@ THREE.VRPLoader.prototype = {
                 buffergeometry.addAttribute('uv2', new THREE.BufferAttribute(new Float32Array(geometry.uvs2), 2));
             }
 
-            buffergeometry.computeVertexNormals();
+            //buffergeometry.computeVertexNormals();
 
             material = new THREE.MeshBasicMaterial();
             material.name = object.name;
             material.map = object.material.map;
             material.lightMap = object.material.lightMap;
             material.transparent = object.material.transparent;
-            //material.visible = object.visible;
+            material.visible = object.visible;
             material.side = object.material.side;
             if (object.material.alphaTest > 0) {
                 material.alphaTest = object.material.alphaTest;
